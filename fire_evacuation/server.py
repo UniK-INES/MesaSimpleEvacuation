@@ -5,7 +5,7 @@ from mesa.visualization.ModularVisualization import ModularServer
 from mesa.visualization.UserParam import UserSettableParameter
 
 from .model import FireEvacuation
-from .agent import FireExit, Wall, Furniture, Fire, Smoke, Human, Sight, Door, DeadHuman
+from .agent import FireExit, Wall, Human, Sight, Door
 
 
 # Creates a visual portrayal of our model in the browser interface
@@ -29,20 +29,9 @@ def fire_evacuation_portrayal(agent):
         elif agent.get_mobility() == Human.Mobility.PANIC:
             # Panicked
             portrayal["Shape"] = "fire_evacuation/resources/panicked_human.png"
-        elif agent.is_carrying():
-            # Carrying someone
-            portrayal["Shape"] = "fire_evacuation/resources/carrying_human.png"
         else:
             # Normal
             portrayal["Shape"] = "fire_evacuation/resources/human.png"
-    elif type(agent) is Fire:
-        portrayal["Shape"] = "fire_evacuation/resources/fire.png"
-        portrayal["scale"] = 1
-        portrayal["Layer"] = 3
-    elif type(agent) is Smoke:
-        portrayal["Shape"] = "fire_evacuation/resources/smoke.png"
-        portrayal["scale"] = 1
-        portrayal["Layer"] = 2
     elif type(agent) is FireExit:
         portrayal["Shape"] = "fire_evacuation/resources/fire_exit.png"
         portrayal["scale"] = 1
@@ -55,14 +44,6 @@ def fire_evacuation_portrayal(agent):
         portrayal["Shape"] = "fire_evacuation/resources/wall.png"
         portrayal["scale"] = 1
         portrayal["Layer"] = 1
-    elif type(agent) is Furniture:
-        portrayal["Shape"] = "fire_evacuation/resources/furniture.png"
-        portrayal["scale"] = 1
-        portrayal["Layer"] = 1
-    elif type(agent) is DeadHuman:
-        portrayal["Shape"] = "fire_evacuation/resources/dead.png"
-        portrayal["scale"] = 1
-        portrayal["Layer"] = 4
     elif type(agent) is Sight:
         portrayal["Shape"] = "fire_evacuation/resources/eye.png"
         portrayal["scale"] = 0.8
@@ -70,8 +51,7 @@ def fire_evacuation_portrayal(agent):
 
     return portrayal
 
-
-# Was hoping floorplan could dictate the size of the grid, but seems the grid needs to be specified first, so the size is fixed to 50x50
+# initial extent that will be changed on reset (?)
 canvas_element = CanvasGrid(fire_evacuation_portrayal, 50, 50, 800, 800)
 
 # Define the charts on our web interface visualisation
@@ -91,44 +71,27 @@ mobility_chart = ChartModule(
     ]
 )
 
-collaboration_chart = ChartModule(
-    [
-        {"Label": "Verbal Collaboration", "Color": "orange"},
-        {"Label": "Physical Collaboration", "Color": "red"},
-        {"Label": "Morale Collaboration", "Color": "pink"},
-    ]
-)
 
-# Get list of available floorplans
-floor_plans = [
-    f
-    for f in listdir("fire_evacuation/floorplans")
-    if path.isfile(path.join("fire_evacuation/floorplans", f))
-]
 
 # Specify the parameters changeable by the user, in the web interface
 model_params = {
-    "floor_plan_file": UserSettableParameter(
-        "choice", "Floorplan", value=floor_plans[0], choices=floor_plans
+    "floor_size": UserSettableParameter(
+        "slider", "Room size (edge)", value=50, min_value=10, max_value=1000, step=10
     ),
-    "human_count": UserSettableParameter("number", "Number Of Human Agents", value=10),
-    "collaboration_percentage": UserSettableParameter(
-        "slider", "Percentage Collaborating", value=50, min_value=0, max_value=100, step=10
-    ),
-    "fire_probability": UserSettableParameter(
-        "slider", "Probability of Fire", value=0.1, min_value=0, max_value=1, step=0.01
-    ),
+    "human_count": UserSettableParameter(
+        "slider", "Number Of Human Agents", value=10, min_value=1, max_value=10000, step=10),
     "random_spawn": UserSettableParameter(
         "checkbox", "Spawn Agents at Random Locations", value=True
     ),
     "visualise_vision": UserSettableParameter("checkbox", "Show Agent Vision", value=False),
     "save_plots": UserSettableParameter("checkbox", "Save plots to file", value=True),
+    "canvas": canvas_element,
 }
 
 # Start the visual server with the model
 server = ModularServer(
     FireEvacuation,
-    [canvas_element, status_chart, mobility_chart, collaboration_chart],
-    "Fire Evacuation",
+    [canvas_element, status_chart, mobility_chart],
+    "Room Evacuation",
     model_params,
 )

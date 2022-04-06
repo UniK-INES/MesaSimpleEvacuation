@@ -1,6 +1,19 @@
-# Fire Evacuation ABM
+# Simple Evacuation ABM
 
-[![Tests](https://github.com/Chadsr/MesaFireEvacuation/actions/workflows/tests.yml/badge.svg)](https://github.com/Chadsr/MesaFireEvacuation/actions/workflows/tests.yml)
+This is a simplification of [Chadsr/MesaFireEvacuation](https://github.com/Chadsr/MesaFireEvacuation) for educational purposes.
+
+These features have been removed:
+
+* Fire
+* Smoke
+* Human.Mobility.INCAPACITATED
+* Furniture
+* Reading floorplan
+* Collaboration among agents
+
+New features:
+
+* Setting floor size and generating simple rooms from that
 
 The [accompanying paper](./docs/Influence_of_Human_Behaviour_in_the_Evacuation_of_a_Burning_Building.pdf) includes both specification and experimental results. To view the code exactly as it was in the paper, please see [here](https://github.com/Chadsr/MesaFireEvacuation/tree/2597862708a57785b1cb67d4bf527e5896d30a7b).
 

@@ -8,8 +8,9 @@ from mesa import Model
 from mesa.datacollection import DataCollector
 from mesa.space import Coordinate, MultiGrid
 from mesa.time import RandomActivation
+from mesa.visualization.modules import CanvasGrid
 
-from .agent import Human, Wall, FireExit, Furniture, Fire, Door
+from .agent import Human, Wall, FireExit, Door
 
 
 class FireEvacuation(Model):
@@ -30,43 +31,67 @@ class FireEvacuation(Model):
 
     def __init__(
         self,
-        floor_plan_file: str,
+        floor_size: int,
         human_count: int,
-        collaboration_percentage: float,
-        fire_probability: float,
         visualise_vision: bool,
         random_spawn: bool,
         save_plots: bool,
-    ):
-        # Load floorplan
-        # floorplan = np.genfromtxt(path.join("fire_evacuation/floorplans/", floor_plan_file))
-        with open(os.path.join("fire_evacuation/floorplans/", floor_plan_file), "rt") as f:
-            floorplan = np.matrix([line.strip().split() for line in f.readlines()])
+        canvas: CanvasGrid = None,
+     ):
+        """
+        
+
+        Parameters
+        ----------
+        floor_size : int
+            DESCRIPTION.
+        human_count : int
+            DESCRIPTION.
+        visualise_vision : bool
+            DESCRIPTION.
+        random_spawn : bool
+            DESCRIPTION.
+        save_plots : bool
+            DESCRIPTION.
+         : TYPE
+            DESCRIPTION.
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        # Create floorplan
+        floorplan = np.full((floor_size, floor_size), '_')
+        floorplan[(0,-1),:]='W'
+        floorplan[:,(0,-1)]='W'
+        floorplan[round(floor_size/2),(0,-1)] = 'E'
+        floorplan[(0,-1), round(floor_size/2)] = 'E'
 
         # Rotate the floorplan so it's interpreted as seen in the text file
         floorplan = np.rot90(floorplan, 3)
 
-        # Check what dimension our floorplan is
-        width, height = np.shape(floorplan)
-
         # Init params
-        self.width = width
-        self.height = height
+        self.width = floor_size
+        self.height = floor_size
         self.human_count = human_count
-        self.collaboration_percentage = collaboration_percentage
         self.visualise_vision = visualise_vision
-        self.fire_probability = fire_probability
-        self.fire_started = False  # Turns to true when a fire has started
         self.save_plots = save_plots
-
+        
         # Set up model objects
         self.schedule = RandomActivation(self)
 
-        self.grid = MultiGrid(height, width, torus=False)
+        self.grid = MultiGrid(floor_size, floor_size, torus=False)
 
-        # Used to start a fire at a random furniture location
-        self.furniture: dict[Coordinate, Furniture] = {}
-
+        # reset canvas
+        if canvas != None:
+            canvas.new_element = "new CanvasModule({}, {}, {}, {})".format(
+                canvas.canvas_width, canvas.canvas_height, floor_size, floor_size
+            )
+            canvas.js_code = "elements.push(" + canvas.new_element + ");"
+            canvas.render(self)
+        
         # Used to easily see if a location is a FireExit or Door, since this needs to be done a lot
         self.fire_exits: dict[Coordinate, FireExit] = {}
         self.doors: dict[Coordinate, Door] = {}
@@ -88,15 +113,11 @@ class FireEvacuation(Model):
                 self.fire_exits[pos] = floor_object
                 # Add fire exits to doors as well, since, well, they are
                 self.doors[pos] = floor_object
-            elif value == "F":
-                floor_object = Furniture(pos, self)
-                self.furniture[pos] = floor_object
             elif value == "D":
                 floor_object = Door(pos, self)
                 self.doors[pos] = floor_object
             elif value == "S":
                 self.spawn_pos_list.append(pos)
-
             if floor_object:
                 self.grid.place_agent(floor_object, pos)
                 self.schedule.add(floor_object)
@@ -113,7 +134,8 @@ class FireEvacuation(Model):
                 )
 
                 for neighbor_pos in neighbors_pos:
-                    # If the neighbour position is empty, or no non-traversable contents, add an edge
+                    # If the neighbour position is empty, or no non-traversable 
+                    # contents, add an edge
                     if self.grid.is_cell_empty(neighbor_pos) or not any(
                         not agent.traversable
                         for agent in self.grid.get_cell_list_contents(neighbor_pos)
@@ -124,28 +146,15 @@ class FireEvacuation(Model):
         self.datacollector = DataCollector(
             {
                 "Alive": lambda m: self.count_human_status(m, Human.Status.ALIVE),
-                "Dead": lambda m: self.count_human_status(m, Human.Status.DEAD),
                 "Escaped": lambda m: self.count_human_status(m, Human.Status.ESCAPED),
                 "Incapacitated": lambda m: self.count_human_mobility(
                     m, Human.Mobility.INCAPACITATED
                 ),
                 "Normal": lambda m: self.count_human_mobility(m, Human.Mobility.NORMAL),
                 "Panic": lambda m: self.count_human_mobility(m, Human.Mobility.PANIC),
-                "Verbal Collaboration": lambda m: self.count_human_collaboration(
-                    m, Human.Action.VERBAL_SUPPORT
-                ),
-                "Physical Collaboration": lambda m: self.count_human_collaboration(
-                    m, Human.Action.PHYSICAL_SUPPORT
-                ),
-                "Morale Collaboration": lambda m: self.count_human_collaboration(
-                    m, Human.Action.MORALE_SUPPORT
-                ),
-            }
+             }
         )
-
-        # Calculate how many agents will be collaborators
-        number_collaborators = int(round(self.human_count * (self.collaboration_percentage / 100)))
-
+        
         # Start placing human agents
         for i in range(0, self.human_count):
             if self.random_spawn:  # Place human agents randomly
@@ -157,12 +166,6 @@ class FireEvacuation(Model):
                 # Create a random human
                 health = np.random.randint(self.MIN_HEALTH * 100, self.MAX_HEALTH * 100) / 100
                 speed = np.random.randint(self.MIN_SPEED, self.MAX_SPEED)
-
-                if number_collaborators > 0:
-                    collaborates = True
-                    number_collaborators -= 1
-                else:
-                    collaborates = False
 
                 # Vision statistics obtained from http://www.who.int/blindness/GLOBALDATAFINALforweb.pdf
                 vision_distribution = [0.0058, 0.0365, 0.0424, 0.9153]
@@ -206,7 +209,6 @@ class FireEvacuation(Model):
                     health=health,
                     speed=speed,
                     vision=vision,
-                    collaborates=collaborates,
                     nervousness=nervousness,
                     experience=experience,
                     believes_alarm=believes_alarm,
@@ -219,9 +221,17 @@ class FireEvacuation(Model):
                 print("No tile empty for human placement!")
 
         self.running = True
-
+     
     # Plots line charts of various statistics from a run
     def save_figures(self):
+        """
+        
+
+        Returns
+        -------
+        None.
+
+        """
         DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         OUTPUT_DIR = DIR + "/output"
 
@@ -230,7 +240,7 @@ class FireEvacuation(Model):
         dpi = 100
         fig, axes = plt.subplots(figsize=(1920 / dpi, 1080 / dpi), dpi=dpi, nrows=1, ncols=3)
 
-        status_results = results.loc[:, ["Alive", "Dead", "Escaped"]]
+        status_results = results.loc[:, ["Alive","Escaped"]]
         status_plot = status_results.plot(ax=axes[0])
         status_plot.set_title("Human Status")
         status_plot.set_xlabel("Simulation Step")
@@ -242,39 +252,14 @@ class FireEvacuation(Model):
         mobility_plot.set_xlabel("Simulation Step")
         mobility_plot.set_ylabel("Count")
 
-        collaboration_results = results.loc[
-            :, ["Verbal Collaboration", "Physical Collaboration", "Morale Collaboration"]
-        ]
-        collaboration_plot = collaboration_results.plot(ax=axes[2])
-        collaboration_plot.set_title("Human Collaboration")
-        collaboration_plot.set_xlabel("Simulation Step")
-        collaboration_plot.set_ylabel("Successful Attempts")
-        collaboration_plot.set_ylim(ymin=0)
-
         timestr = time.strftime("%Y%m%d-%H%M%S")
         plt.suptitle(
-            "Percentage Collaborating: "
-            + str(self.collaboration_percentage)
-            + "%, Number of Human Agents: "
+            "Number of Human Agents: "
             + str(self.human_count),
             fontsize=16,
         )
         plt.savefig(OUTPUT_DIR + "/model_graphs/" + timestr + ".png")
         plt.close(fig)
-
-    # Starts a fire at a random piece of furniture with file_probability chance
-    def start_fire(self):
-        rand = np.random.random()
-        if rand < self.fire_probability:
-            fire_furniture: Furniture = np.random.choice(list(self.furniture.values()))
-            pos = fire_furniture.pos
-
-            fire = Fire(pos, self)
-            self.grid.place_agent(fire, pos)
-            self.schedule.add(fire)
-
-            self.fire_started = True
-            print(f"Fire started at position {pos}")
 
     def step(self):
         """
@@ -282,37 +267,19 @@ class FireEvacuation(Model):
         """
 
         self.schedule.step()
-
-        # If there's no fire yet, attempt to start one
-        if not self.fire_started:
-            self.start_fire()
-
         self.datacollector.collect(self)
 
-        # If no more agents are alive, stop the model and collect the results
+        # If all agents escaped, stop the model and collect the results
         if self.count_human_status(self, Human.Status.ALIVE) == 0:
             self.running = False
 
             if self.save_plots:
                 self.save_figures()
-
-    @staticmethod
-    def count_human_collaboration(model, collaboration_type):
-        """
-        Helper method to count the number of collaborations performed by Human agents in the model
-        """
-
-        count = 0
-        for agent in model.schedule.agents:
-            if isinstance(agent, Human):
-                if collaboration_type == Human.Action.VERBAL_SUPPORT:
-                    count += agent.get_verbal_collaboration_count()
-                elif collaboration_type == Human.Action.MORALE_SUPPORT:
-                    count += agent.get_morale_collaboration_count()
-                elif collaboration_type == Human.Action.PHYSICAL_SUPPORT:
-                    count += agent.get_physical_collaboration_count()
-
-        return count
+                
+    def run(self, n):
+        """Run the model for n steps."""
+        for _ in range(n):
+            self.step()
 
     @staticmethod
     def count_human_status(model, status):

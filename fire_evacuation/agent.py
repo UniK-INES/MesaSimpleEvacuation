@@ -80,8 +80,6 @@ class FloorObject(Agent):
         self,
         pos: Coordinate,
         traversable: bool,
-        flammable: bool,
-        spreads_smoke: bool,
         visibility: int = 2,
         model=None,
     ):
@@ -89,8 +87,6 @@ class FloorObject(Agent):
         super().__init__(rand_id, model)
         self.pos = pos
         self.traversable = traversable
-        self.flammable = flammable
-        self.spreads_smoke = spreads_smoke
         self.visibility = visibility
 
     def get_position(self):
@@ -100,7 +96,7 @@ class FloorObject(Agent):
 class Sight(FloorObject):
     def __init__(self, pos, model):
         super().__init__(
-            pos, traversable=True, flammable=False, spreads_smoke=True, visibility=-1, model=model
+            pos, traversable=True, visibility=-1, model=model
         )
 
     def get_position(self):
@@ -109,134 +105,24 @@ class Sight(FloorObject):
 
 class Door(FloorObject):
     def __init__(self, pos, model):
-        super().__init__(pos, traversable=True, flammable=False, spreads_smoke=True, model=model)
+        super().__init__(pos, traversable=True, model=model)
 
 
 class FireExit(FloorObject):
     def __init__(self, pos, model):
         super().__init__(
-            pos, traversable=True, flammable=False, spreads_smoke=False, visibility=6, model=model
-        )
+            pos, traversable=True, visibility=6, model=model)
 
 
 class Wall(FloorObject):
     def __init__(self, pos, model):
-        super().__init__(pos, traversable=False, flammable=False, spreads_smoke=False, model=model)
+        super().__init__(pos, traversable=False, model=model)
 
 
 class Furniture(FloorObject):
+    
     def __init__(self, pos, model):
-        super().__init__(pos, traversable=False, flammable=True, spreads_smoke=True, model=model)
-
-
-"""
-FIRE STUFF
-"""
-
-
-class Fire(FloorObject):
-    """
-    A fire agent
-
-    Attributes:
-        ...
-    """
-
-    def __init__(self, pos, model):
-        super().__init__(
-            pos,
-            traversable=False,
-            flammable=False,
-            spreads_smoke=True,
-            visibility=20,
-            model=model,
-        )
-        self.smoke_radius = 1
-
-    def step(self):
-        neighborhood = self.model.grid.get_neighborhood(
-            self.pos, moore=False, include_center=False, radius=self.smoke_radius
-        )
-
-        for neighbor_pos in neighborhood:
-            contents = self.model.grid.get_cell_list_contents(neighbor_pos)
-
-            if len(contents) > 0:
-                has_smoke = False
-                has_fire = False
-                for agent in contents:
-                    if isinstance(agent, Smoke):
-                        has_smoke = True
-                    elif isinstance(agent, Fire):
-                        has_fire = True
-                    if has_smoke and has_fire:
-                        break
-
-                if not has_fire:
-                    for agent in contents:
-                        if agent.flammable:
-                            fire = Fire(neighbor_pos, self.model)
-                            self.model.schedule.add(fire)
-                            self.model.grid.place_agent(fire, neighbor_pos)
-                            break
-
-                if not has_smoke:
-                    for agent in contents:
-                        if agent.spreads_smoke:
-                            smoke = Smoke(neighbor_pos, self.model)
-                            self.model.schedule.add(smoke)
-                            self.model.grid.place_agent(smoke, neighbor_pos)
-                            break
-
-    def get_position(self):
-        return self.pos
-
-
-class Smoke(FloorObject):
-    """
-    A smoke agent
-
-    Attributes:
-        ...
-    """
-
-    def __init__(self, pos, model):
-        super().__init__(pos, traversable=True, flammable=False, spreads_smoke=False, model=model)
-        self.smoke_radius = 1
-        self.spread_rate = 1  # The increment per step to increase self.spread by
-        self.spread_threshold = 1
-        self.spread = 0  # When equal or greater than spread_threshold, the smoke will spread to its neighbors
-
-    def step(self):
-        if self.spread >= 1:
-            smoke_neighborhood = self.model.grid.get_neighborhood(
-                self.pos, moore=False, include_center=False, radius=self.smoke_radius
-            )
-            for neighbor in smoke_neighborhood:
-                place_smoke = True
-                contents = self.model.grid.get_cell_list_contents(neighbor)
-                for agent in contents:
-                    if not agent.spreads_smoke:
-                        place_smoke = False
-                        break
-
-                if place_smoke:
-                    smoke = Smoke(neighbor, self.model)
-                    self.model.grid.place_agent(smoke, neighbor)
-                    self.model.schedule.add(smoke)
-
-        if self.spread >= self.spread_threshold:
-            self.spread_rate = 0
-        else:
-            self.spread += self.spread_rate
-
-    def get_position(self):
-        return self.pos
-
-
-class DeadHuman(FloorObject):
-    def __init__(self, pos, model):
-        super().__init__(pos, traversable=True, flammable=True, spreads_smoke=True, model=model)
+        super().__init__(pos, traversable=False, model=model)
 
 
 class Human(Agent):
@@ -251,20 +137,18 @@ class Human(Agent):
     """
 
     class Mobility(IntEnum):
+        """"
+        Agents' mobility
+        """
         INCAPACITATED = 0
         NORMAL = 1
         PANIC = 2
 
     class Status(IntEnum):
-        DEAD = 0
+        
         ALIVE = 1
         ESCAPED = 2
-
-    class Action(IntEnum):
-        PHYSICAL_SUPPORT = 0
-        MORALE_SUPPORT = 1
-        VERBAL_SUPPORT = 2
-        RETREAT = 3
+        
 
     MIN_HEALTH = 0.0
     MAX_HEALTH = 1.0
@@ -272,80 +156,57 @@ class Human(Agent):
     MIN_EXPERIENCE = 1
     MAX_EXPERIENCE = 10
 
+    MIN_NERVOUSNESS = 0.1
+    MAX_NERVOUSNESS = 1.0
+    
     MIN_SPEED = 0.0
     MAX_SPEED = 2.0
 
     MIN_KNOWLEDGE = 0
     MAX_KNOWLEDGE = 1
-
-    MAX_SHOCK = 1.0
-    MIN_SHOCK = 0.0
-    # Shock modifiers when encountering certain objects per object, per step
-    DEFAULT_SHOCK_MODIFIER = -0.1  # The default amount the shock value will change per step
-    SHOCK_MODIFIER_DEAD_HUMAN = 1.0
-    SHOCK_MODIFIER_FIRE = 0.2
-    SHOCK_MODIFIER_SMOKE = 0.05
-    SHOCK_MODIFIER_AFFECTED_HUMAN = 0.1
-
+    
     # The value the panic score must reach for an agent to start panic behaviour
     PANIC_THRESHOLD = 0.8
-
-    HEALTH_MODIFIER_FIRE = 0.2
-    HEALTH_MODIFIER_SMOKE = 0.005
-
-    SPEED_MODIFIER_FIRE = 2
-    SPEED_MODIFIER_SMOKE = 0.1
-
+    DEFAULT_NERVOUSNESS_MODIFIER = -0.1
+    NERVOUSNESS_MODIFIER_AFFECTED_HUMAN = 0.3
+    
     # When the health value drops below this value, the agent will being to slow down
     SLOWDOWN_THRESHOLD = 0.5
 
     MIN_PUSH_DAMAGE = 0.01
     MAX_PUSH_DAMAGE = 0.2
 
-    def __init__(
-        self,
-        pos: Coordinate,
-        health: float,
-        speed: float,
-        vision: int,
-        collaborates: bool,
-        nervousness,
-        experience,
-        believes_alarm: bool,
-        model,
-    ):
+        
+    def __init__(self,
+            pos: Coordinate,
+            health: float,
+            speed: float,
+            vision: int,
+            nervousness,
+            experience,
+            believes_alarm: bool,
+            model,
+        ):
+        
         rand_id = get_random_id()
         super().__init__(rand_id, model)
 
-        # Human agents should not be traversable, but we allow "displacement", e.g. pushing to the side
+        ''' Human agents should not be traversable, but we allow 
+        "displacement", e.g. pushing to the side'''
         self.traversable = False
-
-        self.flammable = True
-        self.spreads_smoke = True
 
         self.pos = pos
         self.visibility = 2
         self.health = health
         self.mobility: Human.Mobility = Human.Mobility.NORMAL
-        self.shock: int = self.MIN_SHOCK
         self.speed = speed
         self.vision = vision
-
-        # Boolean specifying whether this agent will attempt collaboration
-        self.collaborates = collaborates
-
-        self.verbal_collaboration_count: int = 0
-        self.morale_collaboration_count: int = 0
-        self.physical_collaboration_count: int = 0
-
-        self.morale_boost: bool = False
-        self.carried: bool = False
-        self.carrying: Union(Human, None) = None
 
         self.knowledge = self.MIN_KNOWLEDGE
         self.nervousness = nervousness
         self.experience = experience
-        self.believes_alarm = believes_alarm  # Boolean stating whether or not the agent believes the alarm is a real fire
+        # Boolean stating whether or not the agent believes the alarm is a real fire
+        self.believes_alarm = believes_alarm  
         self.escaped: bool = False
 
         # The agent and seen location (agent, (x, y)) the agent is planning to move to
@@ -354,17 +215,32 @@ class Human(Agent):
             None,
         )
 
-        self.planned_action: Human.Action = None  # An action the agent intends to do when they reach their planned target {"carry", "morale"}
-
         self.visible_tiles: tuple[Coordinate, tuple[Agent]] = []
 
-        # An empty set representing what the agent knows of the floor plan
+        # An initially empty set representing what the agent knows of the floor plan
         self.known_tiles: dict[Coordinate, set[Agent]] = {}
 
-        # A set representing where the agent has been already
         self.visited_tiles: set[Coordinate] = {self.pos}
+        
+        ''' An action the agent intends to do when they reach their 
+        planned target {"carry", "morale"}'''
+        self.planned_action: Human.Action = None  
+
 
     def update_sight_tiles(self, visible_neighborhood):
+        """
+        Update visible tiles
+
+        Parameters
+        ----------
+        visible_neighborhood : set
+            Set of visible tile and their visible content in neighborhood
+
+        Returns
+        -------
+        None.
+
+        """
         if len(self.visible_tiles) > 0:
             # Remove old vision tiles
             for pos, _ in self.visible_tiles:
@@ -375,19 +251,28 @@ class Human(Agent):
 
         # Add new vision tiles
         for contents, tile in visible_neighborhood:
-            # Don't place if the tile has contents but the agent can't see it
+            # Only place empty tiles or those with visible content
             if self.model.grid.is_cell_empty(tile) or len(contents) > 0:
                 sight_object = Sight(tile, self.model)
                 self.model.grid.place_agent(sight_object, tile)
-
-    # A strange implementation of ray-casting, using Bresenham's Line Algorithm, which takes into account smoke and visibility of objects
+ 
     def get_visible_tiles(self) -> tuple[Coordinate, tuple[Agent]]:
+        """
+        A strange implementation of ray-casting, using Bresenham's Line Algorithm,
+        which takes into account visibility of objects
+
+        Returns
+        -------
+        tuple[Coordinate, tuple[Agent]]
+            Tiles and their visible content.
+
+        """
         neighborhood = self.model.grid.get_neighborhood(
             self.pos, moore=True, include_center=True, radius=self.vision
         )
         visible_neighborhood = set()
 
-        # A set of already checked tiles, for avoiding repetition and thus increased efficiency
+        # A set of already checked tiles
         checked_tiles = set()
 
         # Reverse the neighborhood so we start from the furthest locations and work our way inwards
@@ -395,7 +280,6 @@ class Human(Agent):
             if pos not in checked_tiles:
                 blocked = False
                 try:
-                    smoke_count = 0  # The number of smoke tiles encountered in the path so far
                     path = get_line(self.pos, pos)
 
                     for i, tile in enumerate(path):
@@ -409,24 +293,25 @@ class Human(Agent):
                                 # We hit a wall, reject rest of path and move to next
                                 blocked = True
                                 break
-                            elif isinstance(obj, Smoke):
-                                # We hit a smoke tile, increase the counter
-                                smoke_count += 1
-
-                            # If the object has a visibility score greater than the smoke encountered in the path, it's visible
-                            if obj.visibility and obj.visibility > smoke_count:
+                  
+                            # If the object has a visibility score it is visible
+                            if obj.visibility:
                                 visible_contents.append(obj)
 
                         if blocked:
+                            '''Add the rest of the path to checked tiles, 
+                            since we now know they are not visible'''
                             checked_tiles.update(
                                 path[i:]
-                            )  # Add the rest of the path to checked tiles, since we now know they are not visible
+                            )  
                             break
                         else:
-                            # If a wall didn't block the way, add the visible agents at this location
+                            # If a wall didn't block the way, add the visible 
+                            # agents at this location
                             checked_tiles.add(
                                 tile
-                            )  # Add the tile to checked tiles so we don't check it again
+                            )
+                            # Add the tile to checked tiles so we don't check it again
                             visible_neighborhood.add((tile, tuple(visible_contents)))
 
                 except Exception as e:
@@ -438,38 +323,62 @@ class Human(Agent):
         return tuple(visible_neighborhood)
 
     def get_random_target(self, allow_visited=True):
+        """
+        Choose random tile from known, traversable tiles
+
+        Parameters
+        ----------
+        allow_visited : bool, optional
+            The default is True.
+
+        Returns
+        -------
+        None.
+
+        """
         graph_nodes = self.model.graph.nodes()
 
         known_pos = set(self.known_tiles.keys())
 
-        # If we are excluding visited tiles, remove the visited_tiles set from the available tiles
+        # If we are excluding visited tiles, remove the visited_tiles set 
+        # from the available tiles
         if not allow_visited:
             known_pos -= self.visited_tiles
 
         traversable_pos = [pos for pos in known_pos if self.location_is_traversable(pos)]
 
-        while not self.planned_target[1]:
+        while not self.planned_target[1] and len(traversable_pos) > 0:
             i = np.random.choice(len(traversable_pos))
             target_pos = traversable_pos[i]
             if target_pos in graph_nodes and target_pos != self.pos:
+                # No agent as target
                 self.planned_target = (None, target_pos)
 
     def attempt_exit_plan(self):
+        """
+        Finds a target to exit
+
+        Returns
+        -------
+        None.
+
+        """
         self.planned_target = (None, None)
         fire_exits = set()
 
+        # Query fire exits from known tiles
         for pos, agents in self.known_tiles.items():
             for agent in agents:
                 if isinstance(agent, FireExit):
                     fire_exits.add((agent, pos))
 
         if len(fire_exits) > 0:
-            if len(fire_exits) > 1:  # If there is more than one exit known
+            if len(fire_exits) > 1:  
+                # If there is more than one exit known
                 best_distance = None
                 for exit, exit_pos in fire_exits:
-                    length = len(
-                        get_line(self.pos, exit_pos)
-                    )  # Let's use Bresenham's to find the 'closest' exit
+                    # Let's use Bresenham's to find the 'closest' exit
+                    length = len(get_line(self.pos, exit_pos))
                     if not best_distance or length < best_distance:
                         best_distance = length
                         self.planned_target = (exit, exit_pos)
@@ -477,8 +386,10 @@ class Human(Agent):
             else:
                 self.planned_target = fire_exits.pop()
 
-            # print("Agent found a fire escape!", self.planned_target)
-        else:  # If there's a fire and no fire-escape in sight, try to head for an unvisited door, if no door in sight, move randomly (for now)
+        else:
+            # If there's no fire-escape in sight, try to head for an
+            # unvisited door - no shortest way optimisation
+            # (assumption: only one door per room)
             found_door = False
             for pos, contents in self.visible_tiles:
                 for agent in contents:
@@ -495,107 +406,109 @@ class Human(Agent):
                 self.get_random_target(allow_visited=False)
 
     def get_panic_score(self):
+        """
+        Calculate panic score
+
+        Returns
+        -------
+        panic_score : TYPE
+
+        """
         health_component = 1 / np.exp(self.health / self.nervousness)
         experience_component = 1 / np.exp(self.experience / self.nervousness)
 
         # Calculate the mean of the components
-        panic_score = (health_component + experience_component + self.shock) / 3
-
-        # print("Panic score:", panic_score, "Health Score:", health_component, "Experience Score:", experience_component, "Shock score:", self.shock)
-
+        panic_score = (health_component + experience_component) / 2
         return panic_score
+    
 
     def incapacitate(self):
-        self.stop_carrying()
+        """
+        Called when agents become incapacitated
+
+        Returns
+        -------
+        None.
+
+        """
         self.mobility = Human.Mobility.INCAPACITATED
         self.traversable = True
 
-    def die(self):
-        # Store the agent's position of death so we can remove them and place a DeadHuman
-        pos = self.pos
-        self.model.grid.remove_agent(self)
-        dead_self = DeadHuman(pos, self.model)
-        self.model.grid.place_agent(dead_self, pos)
-        print("Agent died at", pos)
 
-    def health_mobility_rules(self):
-        moore_neighborhood = self.model.grid.get_neighborhood(
-            self.pos, moore=True, include_center=True, radius=1
-        )
-        contents = self.model.grid.get_cell_list_contents(moore_neighborhood)
+    def health_speed_rules(self):
+        """
+        Adapt agent's healt and speed
 
-        for agent in contents:
-            if isinstance(agent, Fire):
-                self.health -= self.HEALTH_MODIFIER_FIRE
-                self.speed -= self.SPEED_MODIFIER_FIRE
-            elif isinstance(agent, Smoke):
-                self.health -= self.HEALTH_MODIFIER_SMOKE
+        Returns
+        -------
+        None.
 
-                # Start to slow the agent when they drop below 50% health
-                if self.health < self.SLOWDOWN_THRESHOLD:
-                    self.speed -= self.SPEED_MODIFIER_SMOKE
+        """
+        # Start to slow the agent when they drop below 50% health
+        if self.health < self.SLOWDOWN_THRESHOLD:
+            self.speed -= self.SPEED_MODIFIER_SMOKE
 
         # Prevent health and speed from going below 0
-        if self.health < self.MIN_HEALTH:
-            self.health = self.MIN_HEALTH
         if self.speed < self.MIN_SPEED:
             self.speed = self.MIN_SPEED
 
-        if self.health == self.MIN_HEALTH:
-            self.stop_carrying()
-            self.die()
         elif self.speed == self.MIN_SPEED:
             self.incapacitate()
 
     def panic_rules(self):
-        if self.morale_boost:  # If the agent recieved a morale boost, they will not panic again
-            return
+        """
+        Apply panic rules (when nervousness exceeds self.PANIC_THRESHOLD)
 
+        Returns
+        -------
+        None.
+
+        """
         # Shock will decrease by this amount if no new shock is added
-        shock_modifier = self.DEFAULT_SHOCK_MODIFIER
+        nervousness_modifier = self.DEFAULT_NERVOUSNESS_MODIFIER
         for _, agents in self.visible_tiles:
             for agent in agents:
-                if isinstance(agent, Fire):
-                    shock_modifier += self.SHOCK_MODIFIER_FIRE - self.DEFAULT_SHOCK_MODIFIER
-                if isinstance(agent, Smoke):
-                    shock_modifier += self.SHOCK_MODIFIER_SMOKE - self.DEFAULT_SHOCK_MODIFIER
-                if isinstance(agent, DeadHuman):
-                    shock_modifier += self.SHOCK_MODIFIER_DEAD_HUMAN - self.DEFAULT_SHOCK_MODIFIER
                 if isinstance(agent, Human) and agent.get_mobility() != Human.Mobility.NORMAL:
-                    shock_modifier += (
-                        self.SHOCK_MODIFIER_AFFECTED_HUMAN - self.DEFAULT_SHOCK_MODIFIER
+                    nervousness_modifier += (
+                        self.NERVOUSNESS_MODIFIER_AFFECTED_HUMAN - self.DEFAULT_NERVOUSNESS_MODIFIER
                     )
 
-        # If the agent's shock value increased and they didn't believe the alarm before, they now do believe it
-        if not self.believes_alarm and shock_modifier != self.DEFAULT_SHOCK_MODIFIER:
-            print("Agent now believes the fire is real!")
+        # If the agent's shock value increased and they didn't believe the alarm before, 
+        # they now do believe it
+        if not self.believes_alarm and nervousness_modifier != self.DEFAULT_NERVOUSNESS_MODIFIER:
             self.believes_alarm = True
 
-        self.shock += shock_modifier
+        self.nervousness += nervousness_modifier
 
-        # Keep the shock value between 0 and 1
-        if self.shock > self.MAX_SHOCK:
-            self.shock = self.MAX_SHOCK
-        elif self.shock < self.MIN_SHOCK:
-            self.shock = self.MIN_SHOCK
+        # Keep the nervousness value between 0 and 1
+        if self.nervousness > self.MAX_NERVOUSNESS:
+            self.nervousness = self.MAX_NERVOUSNESS
+        elif self.nervousness < self.MIN_NERVOUSNESS:
+            self.nervousness = self.MIN_NERVOUSNESS
 
         panic_score = self.get_panic_score()
 
         if panic_score >= self.PANIC_THRESHOLD:
-            print("Agent is panicking! Score:", panic_score, "Shock:", self.shock)
-            self.stop_carrying()
             self.mobility = Human.Mobility.PANIC
 
             # when an agent panics, clear known tiles
             # this represents the agent forgetting all logical information about their surroundings,
-            # and having ot rebuild it once they stop panicking
+            # and having to rebuild it once they stop panicking
             self.known_tiles = {}
             self.knowledge = 0
         elif panic_score < self.PANIC_THRESHOLD and self.mobility == Human.Mobility.PANIC:
-            print("Agent stopped panicking! Score:", panic_score, "Shock:", self.shock)
             self.mobility = Human.Mobility.NORMAL
 
+
     def learn_environment(self):
+        """
+        Learn content of visible tiles
+
+        Returns
+        -------
+        None.
+
+        """
         if self.knowledge < self.MAX_KNOWLEDGE:  # If there is still something to learn
             new_tiles = 0
 
@@ -608,96 +521,30 @@ class Human(Agent):
             total_tiles = self.model.grid.width * self.model.grid.height
             new_knowledge_percentage = new_tiles / total_tiles
             self.knowledge = self.knowledge + new_knowledge_percentage
-            # print("Current knowledge:", self.knowledge)
-
-    def get_collaboration_cost(self):
-        panic_score = self.get_panic_score()
-        total_count = (
-            self.verbal_collaboration_count
-            + self.morale_collaboration_count
-            + self.physical_collaboration_count
-        )
-
-        collaboration_component = 1 / np.exp(
-            1 / (total_count + 1)
-        )  # The more time this agent has collaborated, the higher the score will become
-        collaboration_cost = (collaboration_component + panic_score) / 2
-        # print("Collaboration cost:", collaboration_cost, "Component:", collaboration_component, "Panic component:", panic_score)
-
-        return collaboration_cost
-
-    def test_collaboration(self) -> bool:
-        collaboration_cost = self.get_collaboration_cost()
-
-        rand = np.random.random()
-        # Collaboration if rand is GREATER than our collaboration_cost (Higher collaboration_cost means less likely to collaborate)
-        if rand > collaboration_cost:
-            return True
-        else:
-            return False
-
-    def verbal_collaboration(self, target_agent: Self, target_location: Coordinate):
-        success = False
-        for _, agents in self.visible_tiles:
-            for agent in agents:
-                if isinstance(agent, Human) and agent.get_mobility() == Human.Mobility.NORMAL:
-                    if not agent.believes_alarm:
-                        agent.set_believes(True)
-
-                    # Inform the agent of the target location
-                    if not target_location in agent.known_tiles:
-                        agent.known_tiles[target_location] = set()
-
-                    agent.known_tiles[target_location].add(target_agent)
-                    success = True
-
-        if success:
-            print("Agent informed others of a fire exit!")
-            self.verbal_collaboration_count += 1
-
-    def check_for_collaboration(self):
-        # If the agent is carrying someone, they are too occupied to do other collaboration
-        if self.carrying:
-            return
-
-        if self.test_collaboration():
-            for location, visible_agents in self.visible_tiles:
-                if self.planned_action:
-                    break
-
-                for agent in visible_agents:
-                    if isinstance(agent, Human) and not self.planned_action:
-                        if agent.get_mobility() == Human.Mobility.INCAPACITATED:
-                            # If the agent is incapacitated, help them
-                            # Physical collaboration
-                            # Plan to move toward the target
-                            self.planned_target = (
-                                agent,
-                                location,
-                            )
-                            # Plan to carry the agent
-                            self.planned_action = Human.Action.PHYSICAL_SUPPORT
-                            # print("Agent planned physical collaboration at", location)
-                            break
-                        elif (
-                            agent.get_mobility() == Human.Mobility.PANIC
-                            and not self.planned_action
-                        ):
-                            # Morale collaboration
-                            # Plan to move toward the target
-                            self.planned_target = (
-                                agent,
-                                location,
-                            )
-                            # Plan to do morale collaboration with the agent
-                            self.planned_action = Human.Action.MORALE_SUPPORT
-                            # print("Agent planned morale collaboration at", location)
-                            break
-                    elif isinstance(agent, FireExit):
-                        # Verbal collaboration
-                        self.verbal_collaboration(agent, location)
+            
 
     def get_next_location(self, path):
+        """
+        Extract the path and target for the next tick.
+
+        Parameters
+        ----------
+        path : tuple
+            currently followed path.
+
+        Raises
+        ------
+        Exception
+            Failure when determiniing next location.
+
+        Returns
+        -------
+        next_location : pos
+            Next location to end at.
+        next_path : tuple
+            Path to next location.
+
+        """
         path_length = len(path)
         speed_int = int(np.round(self.speed))
 
@@ -716,10 +563,35 @@ class Human(Agent):
             return (next_location, next_path)
         except Exception as e:
             raise Exception(
-                f"Failed to get next location: {e}\nPath: {path},\nlen: {length},\nSpeed: {self.speed}"
+                f"Failed to get next location: {e}\nPath: {path},\nlen: {path_length},\nSpeed: {self.speed}"
             )
 
     def get_path(self, graph, target, include_target=True) -> list[Coordinate]:
+        """
+        Get path to target from graph
+
+        Parameters
+        ----------
+        graph : nx graph
+            graph of traversable ways over the floor plan.
+        target : tile
+            target tile
+        include_target : bool, optional
+            The default is True.
+
+        Raises
+        ------
+        Exception
+            DESCRIPTION.
+        e
+            DESCRIPTION.
+
+        Returns
+        -------
+        list[Coordinate]
+            an empty path if no path can be found
+
+        """
         path = []
         visible_tiles_pos = [pos for pos, _ in self.visible_tiles]
 
@@ -728,6 +600,7 @@ class Human(Agent):
                 path = nx.shortest_path(graph, self.pos, target)
             else:  # Target is not visible, so do less efficient pathing
                 # TODO: In the future this could be replaced with a more naive path algorithm
+                # TODO check peformance
                 path = nx.shortest_path(graph, self.pos, target)
 
                 if not include_target:
@@ -755,6 +628,7 @@ class Human(Agent):
             print(f"No path between nodes! ({self.pos} -> {target})")
             return path
 
+
     def location_is_traversable(self, pos) -> bool:
         if not self.model.grid.is_cell_empty(pos):
             contents = self.model.grid.get_cell_list_contents(pos)
@@ -764,112 +638,21 @@ class Human(Agent):
 
         return True
 
-    def get_retreat_location(self, next_location) -> Coordinate:
-        x, y = self.pos
-        next_x, next_y = next_location
-        diff_x = x - next_x
-        diff_y = y - next_y
-
-        retreat_location = (sum([x, diff_x]), sum([y, diff_y]))
-        return retreat_location
-
-    def check_retreat(self, next_path, next_location) -> bool:
-        # Get the contents of any visible locations in the next path
-        visible_path = []
-        for visible_pos, _ in self.visible_tiles:
-            if visible_pos in next_path:
-                visible_path.append(visible_pos)
-
-        visible_contents = self.model.grid.get_cell_list_contents(visible_path)
-        for agent in visible_contents:
-            if (isinstance(agent, Smoke) and not self.planned_action) or isinstance(agent, Fire):
-                # There's a danger in the visible path, so try and retreat in the opposite direction
-                # Retreat if there's fire, or smoke (and no collaboration attempt)
-                retreat_location = self.get_retreat_location(next_location)
-
-                # Check if retreat location is out of bounds
-                if not self.model.grid.out_of_bounds(retreat_location):
-                    # Check if the retreat location is also smoke, if so, we are surrounded by smoke, so move randomly
-                    contents = self.model.grid.get_cell_list_contents(retreat_location)
-                    for agent in contents:
-                        if isinstance(agent, Smoke) or isinstance(agent, Fire):
-                            self.get_random_target()
-                            print("Agent surrounded by smoke and moving randomly")
-                            retreat_location = None
-                            break
-
-                    if retreat_location:
-                        print("Agent retreating opposite to fire/smoke")
-                        self.planned_target = (None, retreat_location)
-                else:
-                    self.get_random_target()  # Since our retreat is out of bounds, just go to a random location
-
-                self.planned_action = Human.Action.RETREAT
-                return True
-
-        return False
-
-    def update_target(self):
-        # If there was a target agent, check if target has moved or still exists
-        planned_agent = self.planned_target[0]
-        if planned_agent:
-            current_pos = planned_agent.get_position()
-            if current_pos and current_pos != self.planned_target[1]:  # Agent has moved
-                self.planned_target = (planned_agent, current_pos)
-                # print("Target agent moved. Updating current position:", self.planned_target)
-            elif not current_pos:  # Agent no longer exists
-                # print("Target agent no longer exists. Dropping.", self.planned_target, current_pos)
-                self.planned_target = (None, None)
-                self.planned_action = None
-
-    def update_action(self):
-        planned_agent, _ = self.planned_target
-
-        if planned_agent:
-            # Agent had planned morale collaboration, but the agent is no longer panicking or no longer alive, so drop it.
-            if self.planned_action == Human.Action.MORALE_SUPPORT and (
-                planned_agent.get_mobility() != Human.Mobility.PANIC
-                or not planned_agent.get_status() == Human.Status.ALIVE
-            ):
-                # print("Target agent no longer panicking. Dropping action.")
-                self.planned_target = (None, None)
-                self.planned_action = None
-            # Agent had planned physical collaboration, but the agent is no longer incapacitated or has already been carried or is not alive, so drop it.
-        elif self.planned_action == Human.Action.PHYSICAL_SUPPORT and (
-            (planned_agent.get_mobility() != Human.Mobility.INCAPACITATED)
-            or planned_agent.is_carried()
-            or planned_agent.get_status() != Human.Status.ALIVE
-        ):
-            self.planned_target = (None, None)
-            self.planned_action = None
-        elif self.planned_action == Human.Action.RETREAT:
-            return
-        else:  # Can no longer perform the action
-            self.planned_target = (None, None)
-            self.planned_action = None
-
-    def perform_action(self):
-        agent, _ = self.planned_target
-
-        if self.planned_action == Human.Action.PHYSICAL_SUPPORT:
-            if not agent.is_carried():
-                self.carrying = agent
-                agent.set_carried(True)
-                self.physical_collaboration_count += 1
-                print("Agent started carrying another agent")
-        elif self.planned_action == Human.Action.MORALE_SUPPORT:
-            # Attempt to give the agent a permanent morale boost according to your experience score
-            if agent.attempt_morale_boost(self.experience):
-                print("Morale boost succeeded")
-            else:
-                print("Morale boost failed")
-
-            self.morale_collaboration_count += 1
-
-        self.planned_action = None
 
     def push_human_agent(self, agent: Self):
-        # push the agent to a random 1 square away traversable Coordinate
+        """
+        Pushes the agent to a neighbouring tile
+
+        Parameters
+        ----------
+        agent : Self
+            agent to push.
+
+        Returns
+        -------
+        None.
+
+        """
         neighborhood = self.model.grid.get_neighborhood(
             agent.get_position(),
             moore=True,
@@ -886,39 +669,23 @@ class Human(Agent):
             # push the human agent to a random traversable position
             i = np.random.choice(len(traversable_neighborhood))
             push_pos = traversable_neighborhood[i]
-            print(
-                f"Agent {self.unique_id} pushed agent {agent.unique_id} from {agent.pos} to {push_pos}"
-            )
             self.model.grid.move_agent(agent, push_pos)
 
             # inure the pushed agent slightly
             current_health = agent.get_health()
             damage = np.random.uniform(self.MIN_PUSH_DAMAGE, self.MAX_PUSH_DAMAGE)
             agent.set_health(current_health - damage)
-        else:
-            neighborhood_contents = {}
-            for pos in neighborhood:
-                neighborhood_contents[pos] = self.model.grid.get_cell_list_contents(pos)
-            print(
-                f"Could not push agent due to no traversable locations.\nNeighborhood Contents: {neighborhood_contents}"
-            )
+
 
     def move_toward_target(self):
         next_location: Coordinate = None
         pruned_edges = set()
-        graph = deepcopy(self.model.graph)
-
-        self.update_target()  # Get the latest location of a target, if it still exists
-        if self.planned_action:  # And if there's an action, check if it's still possible
-            self.update_action()
+        # TODO inefficient?
+        #graph = deepcopy(self.model.graph)
+        graph = self.model.graph
 
         while self.planned_target[1] and not next_location:
-            if self.location_is_traversable(self.planned_target[1]):
-                # Target is traversable
-                path = self.get_path(graph, self.planned_target[1])
-            else:
-                # Target is not traversable (e.g. we are going to another Human), so don't include target in the path
-                path = self.get_path(graph, self.planned_target[1], include_target=False)
+            path = self.get_path(graph, self.planned_target[1])
 
             if len(path) > 0:
                 next_location, next_path = self.get_next_location(path)
@@ -929,31 +696,12 @@ class Human(Agent):
                 if next_location == None:
                     raise Exception("Next location can't be none")
 
-                if self.check_retreat(next_path, next_location):
-                    # We are retreating and therefore need to try a totally new path, so continue from the start of the loop
-                    continue
-
                 # Test the next location to see if we can move there
                 if self.location_is_traversable(next_location):
                     # Move normally
                     self.previous_pos = self.pos
                     self.model.grid.move_agent(self, next_location)
                     self.visited_tiles.add(next_location)
-
-                    if self.carrying:
-                        agent = self.carrying
-                        if agent.get_status() == Human.Status.DEAD:
-                            # Agent is dead, so we can't carry them any more
-                            self.stop_carrying()
-                        else:
-                            # Agent is alive, so try to move them
-                            try:
-                                self.model.grid.move_agent(self.carrying, self.pos)
-                            except Exception as e:
-                                agent = self.carrying
-                                raise Exception(
-                                    f"Failed to move carried agent:\nException:{e}\nAgent: {agent}\nAgent Position: {agent.get_position()}\nSelf Agent Positon: {self.pos}"
-                                )
 
                 elif self.pos == path[-1]:
                     # The human reached their target!
@@ -972,7 +720,8 @@ class Human(Agent):
                     pushed = False
                     contents = self.model.grid.get_cell_list_contents(next_location)
                     for agent in contents:
-                        # Test the panic value to see if this agent "pushes" the blocking agent aside
+                        # Test the panic value to see if this agent "pushes" the 
+                        # blocking agent aside
                         if (
                             isinstance(agent, Human)
                             and agent.mobility != Human.Mobility.INCAPACITATED
@@ -993,7 +742,8 @@ class Human(Agent):
                     if pushed:
                         continue
 
-                    # Remove the next location from the temporary graph so we can try pathing again without it
+                    # Remove the next location from the temporary graph so we 
+                    # can try pathing again without it
                     edges = graph.edges(next_location)
                     pruned_edges.update(edges)
                     graph.remove_node(next_location)
@@ -1013,12 +763,14 @@ class Human(Agent):
                 break
 
         if len(pruned_edges) > 0:
-            # Add back the edges we removed when removing any non-traversable nodes from the global graph, because they may be traversable again next step
+            # TODO does not seem to be necessary, as graph is not used after this in this function
+            # Add back the edges we removed when removing any non-traversable nodes 
+            # from the global graph, because they may be traversable again next step
             graph.add_edges_from(list(pruned_edges))
 
     def step(self):
         if not self.escaped and self.pos:
-            self.health_mobility_rules()
+            self.health_speed_rules()
 
             if self.mobility == Human.Mobility.INCAPACITATED or not self.pos:
                 # Incapacitated or died, so return already
@@ -1032,14 +784,11 @@ class Human(Agent):
 
             planned_target_agent = self.planned_target[0]
 
-            # If a fire has started and the agent believes it, attempt to plan an exit location if we haven't already and we aren't performing an action
-            if self.model.fire_started and self.believes_alarm:
+            # If a fire has started and the agent believes it, attempt to plan 
+            # an exit location if we haven't already and we aren't performing an action
+            if self.believes_alarm:
                 if not isinstance(planned_target_agent, FireExit) and not self.planned_action:
                     self.attempt_exit_plan()
-
-                # Check if anything in vision can be collaborated with, if the agent has normal mobility
-                if self.mobility == Human.Mobility.NORMAL and self.collaborates:
-                    self.check_for_collaboration()
 
             planned_pos = self.planned_target[1]
             if not planned_pos:
@@ -1049,34 +798,19 @@ class Human(Agent):
 
                 if panic_score > 0.9 and np.random.random() < panic_score:
                     # If they have above 90% panic score, test the score to see if they faint
-                    print("Agent fainted!")
                     self.incapacitate()
                     return
-                # if (
-                #     np.random.random() < panic_score
-                # ):  # Test their panic score to see if they will move randomly, or keep their original target
-                #     print("Agent moving randomly in panic!")
-                #     self.planned_action = None
-                #     self.planned_target = (None, None)
-                #     self.get_random_target()
 
             self.move_toward_target()
 
             # Agent reached a fire escape, proceed to exit
-            if self.model.fire_started and self.pos in self.model.fire_exits.keys():
-                if self.carrying:
-                    carried_agent = self.carrying
-                    carried_agent.escaped = True
-                    self.model.grid.remove_agent(carried_agent)
-
+            if self.pos in self.model.fire_exits.keys():
                 self.escaped = True
                 self.model.grid.remove_agent(self)
 
     def get_status(self):
         if self.health > self.MIN_HEALTH and not self.escaped:
             return Human.Status.ALIVE
-        elif self.health <= self.MIN_HEALTH and not self.escaped:
-            return Human.Status.DEAD
         elif self.escaped:
             return Human.Status.ESCAPED
 
@@ -1106,44 +840,4 @@ class Human(Agent):
 
     def set_believes(self, value: bool):
         if value and not self.believes_alarm:
-            print("Agent told to believe the alarm!")
-
-        self.believes_alarm = value
-
-    def attempt_morale_boost(self, experience: int):
-        rand = np.random.random()
-        if rand < (experience / self.MAX_EXPERIENCE):
-            self.morale_boost = True
-            self.mobility = Human.Mobility.NORMAL
-            return True
-        else:
-            return False
-
-    def stop_carrying(self):
-        if self.carrying:
-            carried_agent = self.carrying
-            carried_agent.set_carried(False)
-            self.carrying = None
-            self.planned_action = None
-            print("Agent stopped carrying another agent")
-
-    def set_carried(self, value: bool):
-        self.carried = value
-
-    def is_carried(self):
-        return self.carried
-
-    def is_carrying(self):
-        if self.carrying:
-            return True
-        else:
-            return False
-
-    def get_verbal_collaboration_count(self):
-        return self.verbal_collaboration_count
-
-    def get_morale_collaboration_count(self):
-        return self.morale_collaboration_count
-
-    def get_physical_collaboration_count(self):
-        return self.physical_collaboration_count
+            self.believes_alarm = value
